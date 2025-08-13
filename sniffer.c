@@ -35,16 +35,32 @@ unsigned int hook_func(void *priv, struct sk_buff *socket_buffer, const struct n
 	if (ip->protocol == IPPROTO_TCP) {
 		tcp = tcp_hdr(socket_buffer);
 		// Server Address:Ports -> Destination Address:Ports (Kernel Space Logging)
-		printk(KERN_INFO "TCP: %pI4:%d -> %pI4:%d\n", 
+		// HTTP Specific
+		if (ntohs(tcp->dest) == 80) {
+			printk(KERN_INFO "TCP (HTTP): %pI4:%d -> %pI4:%d\n", 
 				&ip->saddr, ntohs(tcp->source), &ip->daddr, ntohs(tcp->dest));
+		}
+		else {
+			printk(KERN_INFO "TCP: %pI4:%d -> %pI4:%d\n", 
+				&ip->saddr, ntohs(tcp->source), &ip->daddr, ntohs(tcp->dest));
+		}
+		return NF_ACCEPT;
 	}
 	else if (ip->protocol == IPPROTO_UDP) {
 		udp = udp_hdr(socket_buffer);
-		printk(KERN_INFO "UDP: %pI4:%d -> %pI4:%d\n", 
+		// DNS Specific
+		if (ntohs(udp->dest) == 53) {
+			printk(KERN_INFO "UDP (DNS): %pI4:%d -> %pI4:%d\n",
 				&ip->saddr, ntohs(udp->source), &ip->daddr, ntohs(udp->dest));
+		}
+		else {
+			printk(KERN_INFO "UDP: %pI4:%d -> %pI4:%d\n", 
+				&ip->saddr, ntohs(udp->source), &ip->daddr, ntohs(udp->dest));
+		}
+		return NF_ACCEPT;
 	}
 
-	return NF_ACCEPT;
+	return NF_DROP;
 
 }
 
