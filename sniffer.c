@@ -10,10 +10,18 @@
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 
 // Tells kernel which packets to intercept, where to intercept within the network stack, 
 // and what function to process them.
 static struct nf_hook_ops nfho;
+
+// Statistics
+static unsigned long tcp_packets = 0;
+static unsigned long udp_packets = 0;
+static unsigned long tcp_bytes = 0;
+static unsigned long udp_bytes = 0;
 
 unsigned int hook_func(void *priv, struct sk_buff *socket_buffer, const struct nf_hook_state *state)
 {
@@ -44,6 +52,9 @@ unsigned int hook_func(void *priv, struct sk_buff *socket_buffer, const struct n
 			printk(KERN_INFO "TCP: %pI4:%d -> %pI4:%d\n", 
 				&ip->saddr, ntohs(tcp->source), &ip->daddr, ntohs(tcp->dest));
 		}
+		// Info tracking
+		tcp_packets++;
+		tcp_bytes += ntohs(ip->tot_len);
 		return NF_ACCEPT;
 	}
 	else if (ip->protocol == IPPROTO_UDP) {
@@ -57,12 +68,33 @@ unsigned int hook_func(void *priv, struct sk_buff *socket_buffer, const struct n
 			printk(KERN_INFO "UDP: %pI4:%d -> %pI4:%d\n", 
 				&ip->saddr, ntohs(udp->source), &ip->daddr, ntohs(udp->dest));
 		}
+		udp_packets++;
+		udp_bytes += ntohs(ip->tot_len);
 		return NF_ACCEPT;
 	}
 
 	return NF_DROP;
-
 }
+
+// Expose to /proc interface -- seq_file for kernel to userspace output
+static int sniffer_proc_show(struct seq_file *m, void *v) {
+	seq_printf(m, "TCP packets: %lu\nUDP packets: %lu\nTCP bytes: %lu\nUDP bytes: %lu\n",
+		tcp_packets, udp_packets, tcp_bytes, udp_bytes);
+	return 0;
+}
+
+static int sniffer_proc_open(struct inode *inode, struct file *file) {
+	return single_open(file, sniffer_proc_show, NULL);
+}
+
+static const struct proc_ops sniffer_proc_ops = {
+	.proc_open = sniffer_proc_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = single_release,
+};
+
+static struct proc_dir_entry *sniffer_proc_entry;
 
 // Module entrypoint
 static int __init sniffer_init(void) {
@@ -71,6 +103,7 @@ static int __init sniffer_init(void) {
 	nfho.pf = PF_INET; // IPv4
 	nfho.priority = NF_IP_PRI_FIRST; // High priority (First)
 	nf_register_net_hook(&init_net, &nfho); // register_hook(default network namespace, netfilter hook)
+	sniffer_proc_entry = proc_create("sniffer_stats", 0, NULL, &sniffer_proc_ops);
 	printk(KERN_INFO "Packet Sniffer Module Loaded\n\n");
 	return 0;
 }
